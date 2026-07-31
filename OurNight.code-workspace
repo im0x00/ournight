@@ -1,0 +1,26 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"java.compile.nullAnalysis.mode": "automatic",
+		"java.configuration.updateBuildConfiguration": "automatic",
+		"kotlin.compiler.jvm.target": "21",
+		"kotlin.scripts.enabled": true,
+		"kotlin.scripts.buildScriptsEnabled": true,
+		"kotlin.languageServer.watchFiles": [
+			"**/*.kt",
+			"**/*.kts",
+			"**/*.java",
+			"**/pom.xml",
+			"**/build.gradle",
+			"**/build.gradle.kts",
+			"**/settings.gradle",
+			"**/settings.gradle.kts",
+			"**/gradle.properties"
+		],
+		"kotlin.diagnostics.enabled": false
+	}
+}

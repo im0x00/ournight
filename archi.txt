@@ -1,0 +1,115 @@
+.
+├── .vscode
+│   └── settings.json
+├── archi.txt
+├── et cetera
+├── OurNight_BE
+│   ├── .dockerignore
+│   ├── .env
+│   ├── .env.docker.example
+│   ├── .gitattributes
+│   ├── .github
+│   │   └── workflows
+│   │       ├── deploy-alpha.yml
+│   │       └── deploy-prod.yml
+│   ├── .gitignore
+│   ├── build.gradle.kts
+│   ├── docker-compose.yml
+│   ├── Dockerfile
+│   ├── gradle
+│   │   └── wrapper
+│   │       └── gradle-wrapper.properties
+│   ├── gradlew
+│   ├── gradlew.bat
+│   ├── load-tests
+│   │   ├── ournight-boundary-load.mjs
+│   │   ├── README.md
+│   │   ├── results
+│   │   │   ├── festival-mvp-001
+│   │   │   └── lt-1777287576782
+│   │   └── run-boundary-suite.mjs
+│   ├── Makefile
+│   ├── PONG
+│   ├── README.md
+│   ├── scripts
+│   │   ├── connect-alpha-ec2.sh
+│   │   ├── deploy-alpha.sh
+│   │   ├── log-alpha-request.sh
+│   │   ├── terraform-apply-alpha.sh
+│   │   ├── terraform-apply-prod.sh
+│   │   └── tunnel-rds-bastion.sh
+│   ├── settings.gradle.kts
+│   ├── src
+│   │   ├── main
+│   │   │   ├── kotlin
+│   │   │   └── resources
+│   │   └── test
+│   │       ├── kotlin
+│   │       └── resources
+│   └── terraform
+│       ├── envs
+│       │   ├── alpha
+│       │   └── prod
+│       └── modules
+│           ├── cloudfront-site
+│           ├── ecr
+│           ├── ecs-api
+│           ├── rds
+│           └── vpc
+├── OurNight_FE
+│   ├── frontend-server
+│   │   ├── .env
+│   │   ├── .env.alpha
+│   │   ├── .env.production
+│   │   ├── .gitignore
+│   │   ├── eslint.config.js
+│   │   ├── index.html
+│   │   ├── package.json
+│   │   ├── postcss.config.js
+│   │   ├── public
+│   │   │   ├── auth
+│   │   │   ├── customer
+│   │   │   ├── dummy
+│   │   │   ├── fonts
+│   │   │   ├── guest
+│   │   │   ├── host
+│   │   │   ├── image-cache-sw.js
+│   │   │   ├── logo
+│   │   │   ├── main
+│   │   │   ├── manifest.webmanifest
+│   │   │   ├── pos
+│   │   │   ├── pwa-icons
+│   │   │   ├── robots.txt
+│   │   │   ├── shared
+│   │   │   ├── sitemap.xml
+│   │   │   └── version.json
+│   │   ├── README.md
+│   │   ├── scripts
+│   │   │   ├── deploy.mjs
+│   │   │   └── write-version.mjs
+│   │   ├── src
+│   │   │   ├── app
+│   │   │   ├── App.css
+│   │   │   ├── App.tsx
+│   │   │   ├── assets
+│   │   │   ├── components
+│   │   │   ├── config
+│   │   │   ├── domains
+│   │   │   ├── features
+│   │   │   ├── lib
+│   │   │   ├── main.tsx
+│   │   │   ├── pages
+│   │   │   ├── shared
+│   │   │   ├── styles
+│   │   │   ├── types
+│   │   │   └── utils
+│   │   ├── tailwind.config.js
+│   │   ├── tsconfig.app.json
+│   │   ├── tsconfig.json
+│   │   ├── tsconfig.node.json
+│   │   └── vite.config.ts
+│   └── package.json
+├── OurNight.code-workspace
+└── POS_SSE_ARCHITECTURE.md
+
+58 directories, 55 files

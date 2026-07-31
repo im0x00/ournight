@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "dev": "npm --prefix frontend-server run dev",
+    "build": "npm --prefix frontend-server run build",
+    "lint": "npm --prefix frontend-server run lint",
+    "preview": "npm --prefix frontend-server run preview"
+  },
+  "dependencies": {
+    "uuid": "^13.0.0"
+  }
+}
