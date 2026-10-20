@@ -1,0 +1,68 @@
+name: notification-benchmark
+
+services:
+  redis:
+    image: redis:7.4
+    command: ["redis-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "400mb", "--maxmemory-policy", "noeviction"]
+    cpus: ${REDIS_CPUS:-2.0}
+    mem_limit: ${REDIS_MEM:-512m}
+    memswap_limit: ${REDIS_MEM:-512m}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "${REDIS_HOST_PORT:-16379}:6379"   # load generator XADDs from the host
+
+  noti-imperative:
+    image: noti-imperative
+    build:
+      context: ..
+      dockerfile: notification-imperative/Dockerfile
+      args:
+        JAR_FILE: notification-imperative/build/libs/noti-mvc.jar
+    # same resources as noti-reactive, so the comparison only differs in the thread model
+    cpus: ${NOTI_CPUS:-2.0}
+    mem_limit: ${NOTI_MEM:-768m}
+    memswap_limit: ${NOTI_MEM:-768m}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "18081:8081"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  noti-reactive:
+    image: noti-reactive
+    build:
+      context: ..
+      dockerfile: notification-reactive/Dockerfile
+      args:
+        JAR_FILE: notification-reactive/build/libs/noti-reactive.jar
+    cpus: ${NOTI_CPUS:-2.0}
+    mem_limit: ${NOTI_MEM:-768m}
+    memswap_limit: ${NOTI_MEM:-768m}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "18083:8083"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      NOTIFICATION_READER: ${NOTIFICATION_READER:-per-subscription}
+      REDIS_POOL_ENABLED: ${REDIS_POOL_ENABLED:-false}
+      REDIS_POOL_MAX: ${REDIS_POOL_MAX:-16}
+      POLL_TIMEOUT: ${POLL_TIMEOUT:-2s}
+    depends_on:
+      redis:
+        condition: service_healthy

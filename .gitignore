@@ -9,3 +9,9 @@
 **/.env.*
 !**/.env.example
 !**/.env.*.example
+
+notification-benchmark/load/results/
+
+# dependencies and heap dumps
+**/node_modules/
+*.hprof
