@@ -12,9 +12,9 @@ spring:
       lettuce:
         pool:
           enabled: true
-          max-active: 320
-          max-idle: 320
-          min-idle: 300
+          max-active: ${REDIS_POOL_MAX:320}
+          max-idle: ${REDIS_POOL_MAX:320}
+          min-idle: ${REDIS_POOL_MIN_IDLE:300}
           time-between-eviction-runs: 1s
 
 logging:

@@ -36,6 +36,8 @@ services:
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_POOL_MAX: ${REDIS_POOL_MAX:-320}
+      REDIS_POOL_MIN_IDLE: ${REDIS_POOL_MIN_IDLE:-300}
     depends_on:
       redis:
         condition: service_healthy
