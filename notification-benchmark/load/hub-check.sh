@@ -16,7 +16,7 @@
 # killing a curl this script XADDs until the app logs "remove +".
 #
 # This script starts the app itself (from the boot jar) so it can read the
-# app log and stop the app cleanly. Stop any bootRun on 8081 first.
+# app log and stop the app cleanly. Stop any bootRun on that port first.
 #
 # Run (from notification-benchmark/):
 #   docker compose up -d redis
@@ -25,7 +25,26 @@
 set -u
 cd "$(dirname "$0")/.."
 
-BASE=${BASE_URL:-http://localhost:8081}
+# Which module to check. F: MODULE=notification-webflux-coroutine PORT=8084 ./load/hub-check.sh
+MODULE=${MODULE:-notification-mvc-vt}
+PORT=${PORT:-8081}
+JAR_NAME=${JAR_NAME:-${MODULE#notification-}.jar}
+BASE=${BASE_URL:-http://localhost:$PORT}
+
+# App log lines each module prints. The cases below only use these, so MVC and F share one script.
+if [ "$MODULE" = "notification-webflux-coroutine" ]; then
+  P_NOTICED='Leave subscribers='                      # owner handled a Leave (WebFlux notices a dead curl by itself)
+  p_closed()  { echo "close store=$1"; }              # owner decided to close after 30s idle
+  p_removed() { echo "removed store=$1 ok=true"; }    # owner removed itself from the map
+  P_SHUTDOWN='hub shutdown done'                      # step 5: hub scope cancelled, all owners done
+  p_reader_end() { echo "reader ended store=$1"; }    # step 5: reader coroutine finished
+else
+  P_NOTICED='remove +'                                # MVC notices a dead curl only when a send fails
+  p_closed()  { echo "time_wait for 30 seconds in store: $1"; }
+  p_removed() { echo "StoreChannel for $1 removed from Map"; }
+  P_SHUTDOWN='ExecutorService cleanly terminated'
+  p_reader_end() { echo "reading loop(broadcast) is ended: $1"; }
+fi
 # find a Java 25 (the jar is compiled for 25; plain `java` on PATH may be older)
 is25() { "$1" -version 2>&1 | head -1 | grep -q '"25'; }
 find_java() {
@@ -35,7 +54,7 @@ find_java() {
   echo java
 }
 JAVA=${JAVA:-$(find_java)}
-JAR=../notification-imperative/build/libs/noti-mvc.jar
+JAR=../$MODULE/build/libs/$JAR_NAME
 TMP=$(mktemp -d)
 LOG="$TMP/app.log"
 APP_PID=""
@@ -83,13 +102,13 @@ wait_for() {
   echo "$s"
 }
 
-# drop STORE CURL_PID -> kill the curl, then XADD until the app logs a failed send ("remove +")
+# drop STORE CURL_PID -> kill the curl, then XADD until the app logs that it noticed ($P_NOTICED)
 drop() {
-  local before i; before=$(count 'remove +')
+  local before i; before=$(count "$P_NOTICED")
   kill "$2" 2>/dev/null; sleep 1
   for i in 1 2 3 4; do
     xadd "$1" "drop$i"; sleep 1
-    [ "$(count 'remove +')" -gt "$before" ] && return 0
+    [ "$(count "$P_NOTICED")" -gt "$before" ] && return 0
   done
   return 1
 }
@@ -97,14 +116,14 @@ drop() {
 # --- preconditions ---
 rc PING >/dev/null 2>&1 || { echo "Redis not reachable: run 'docker compose up -d redis' in notification-benchmark/"; exit 2; }
 if curl -s -o /dev/null -m 1 "$BASE/actuator/health"; then
-  echo "Something already listens on ${BASE##*:}. Stop it first:  lsof -nP -iTCP:8081 -sTCP:LISTEN  then  kill <PID>"
+  echo "Something already listens on ${BASE##*:}. Stop it first:  lsof -nP -iTCP:$PORT -sTCP:LISTEN  then  kill <PID>"
   exit 2
 fi
 
 is25 "$JAVA" || { echo "need Java 25, got: $("$JAVA" -version 2>&1 | head -1)  (set JAVA=/path/to/java25/bin/java)"; exit 2; }
 echo "java: $JAVA"
 echo "building jar..."
-./gradlew -q :notification-imperative:bootJar || { echo "build failed"; exit 2; }
+./gradlew -q :$MODULE:bootJar || { echo "build failed"; exit 2; }
 "$JAVA" -jar "$JAR" >"$LOG" 2>&1 &
 APP_PID=$!
 for i in $(seq 1 60); do curl -s -o /dev/null -m 1 "$BASE/actuator/health" && break; sleep 1; done
@@ -134,14 +153,14 @@ kill $B1 $B2 2>/dev/null
 echo "C  last subscriber leaves -> close about 30s later (waits up to 45s)"
 sub $S1 "$TMP/c"; sleep 3
 drop $S1 $PID || note "C0 app never logged a failed send after the curl died; timing from now"
-if t=$(wait_for "time_wait for 30 seconds in store: $S1" 1 45); then
+if t=$(wait_for "$(p_closed $S1)" 1 45); then
   if [ "$t" -ge 24 ] && [ "$t" -le 40 ]; then ok "C1 closed ${t}s after the dead curl was noticed (want ~30)"
   else bad "C1 closed ${t}s after the dead curl was noticed (want ~30)"; fi
 else
-  bad "C1 no 'time_wait ... $S1' log within 45s"
+  bad "C1 no '$(p_closed $S1)' log within 45s"
 fi
-if [ "$(count "StoreChannel for $S1 removed from Map")" -ge 1 ]; then ok "C2 channel removed from map"
-else bad "C2 no 'StoreChannel for $S1 removed from Map' log"; fi
+if [ "$(count "$(p_removed $S1)")" -ge 1 ]; then ok "C2 channel removed from map"
+else bad "C2 no '$(p_removed $S1)' log"; fi
 
 # --- R: a new subscriber after the close gets a fresh channel ---
 echo "R  subscribe again after the close"
@@ -157,7 +176,7 @@ drop $S2 $PID || note "Q0 app never logged a failed send after the curl died"
 sleep 5
 sub $S2 "$TMP/q2"; Q2=$PID
 sleep 40
-if [ "$(count "time_wait for 30 seconds in store: $S2")" -eq 0 ]; then ok "Q1 channel stayed open"
+if [ "$(count "$(p_closed $S2)")" -eq 0 ]; then ok "Q1 channel stayed open"
 else bad "Q1 channel closed although a subscriber came back"; fi
 xadd $S2 q1; sleep 1
 q=$(got "$TMP/q2")
@@ -202,8 +221,8 @@ kill $O0 $O1 $X1 2>/dev/null
 echo "Z  poison record (no type field) while a subscriber is connected (step 6)"
 sub $S6 "$TMP/z1"; Z1=$PID; sleep 3
 rc XADD "$(key $S6)" '*' eventId poison >/dev/null
-if wait_for "StoreChannel for $S6 removed from Map" 1 5 >/dev/null; then ok "Z1 dead channel removed from map"
-else bad "Z1 no 'StoreChannel for $S6 removed from Map' within 5s"; fi
+if wait_for "$(p_removed $S6)" 1 5 >/dev/null; then ok "Z1 dead channel removed from map"
+else bad "Z1 no '$(p_removed $S6)' within 5s"; fi
 sleep 1
 if closed $Z1; then ok "Z2 subscriber's connection was completed (it can reconnect)"
 else bad "Z2 subscriber still hanging on the dead channel"; fi
@@ -214,7 +233,7 @@ check "Z3 new subscriber gets a fresh, working channel" "z1" "$(got "$TMP/z3")"
 kill $Z3 2>/dev/null
 # known limit: if the poison record is the NEWEST one, a new channel cannot even start
 rc XADD "$(key $S6)" '*' eventId poison2 >/dev/null
-wait_for "StoreChannel for $S6 removed from Map" 2 5 >/dev/null
+wait_for "$(p_removed $S6)" 2 5 >/dev/null
 code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' -X POST "$BASE/api/pos/$S6/notifications")
 if [ "$code" = "500" ]; then note "Z4 poison record as newest -> subscribe returns 500 until a good record arrives (known limit, not fixed)"
 else echo "  INFO Z4 poison record as newest -> subscribe answered '$code'"; fi
@@ -228,10 +247,10 @@ for i in $(seq 1 60); do kill -0 "$APP_PID" 2>/dev/null || break; sleep 1; done
 t1=$(date +%s); took=$((t1 - t0))
 if kill -0 "$APP_PID" 2>/dev/null; then bad "S1 app still running 60s after SIGTERM"; else ok "S1 app exited (${took}s)"; fi
 APP_PID=""
-if [ "$(count 'ExecutorService cleanly terminated')" -ge 1 ]; then ok "S2 executor terminated cleanly"
-else bad "S2 no 'ExecutorService cleanly terminated' log"; fi
-if [ "$(count "reading loop(broadcast) is ended: $S7")" -ge 1 ]; then ok "S3 reader loop for the store ended"
-else bad "S3 no 'reading loop(broadcast) is ended: $S7' log"; fi
+if [ "$(count "$P_SHUTDOWN")" -ge 1 ]; then ok "S2 hub shut down cleanly"
+else bad "S2 no '$P_SHUTDOWN' log"; fi
+if [ "$(count "$(p_reader_end $S7)")" -ge 1 ]; then ok "S3 reader loop for the store ended"
+else bad "S3 no '$(p_reader_end $S7)' log"; fi
 if closed $S1P; then ok "S4 subscriber's connection ended"; else bad "S4 subscriber still connected after shutdown"; fi
 if [ "$took" -gt 5 ]; then
   note "S5 shutdown took ${took}s (>5s). Likely the web server's graceful shutdown waiting for open SSE requests before @PreDestroy runs"

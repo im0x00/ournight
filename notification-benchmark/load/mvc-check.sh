@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# MVC (notification-imperative) behavior check — step 3 cases.
+# MVC (notification-mvc-vt) behavior check — step 3 cases.
 #   A: no header  -> "from now": old events are NOT sent, an event added after the first empty BLOCK IS sent
 #   B: Last-Event-ID -> only events after that id
 #   C: empty stream -> connection stays open (no 500), first event arrives
 #
 # Before running (from notification-benchmark/):
 #   docker compose up -d redis
-#   ./gradlew :notification-imperative:bootRun        # in another terminal
+#   ./gradlew :notification-mvc-vt:bootRun        # in another terminal
 # Run:
 #   ./load/mvc-check.sh
 #
@@ -51,7 +51,7 @@ alive() { # NAME PID FILE
 
 # --- preconditions ---
 rc PING >/dev/null 2>&1 || { echo "Redis not reachable: run 'docker compose up -d redis' in notification-benchmark/"; exit 2; }
-curl -s -o /dev/null -m 2 "$BASE/actuator/health" || { echo "App not reachable at $BASE: run './gradlew :notification-imperative:bootRun'"; exit 2; }
+curl -s -o /dev/null -m 2 "$BASE/actuator/health" || { echo "App not reachable at $BASE: run './gradlew :notification-mvc-vt:bootRun'"; exit 2; }
 echo "store: $STORE"
 
 # --- C: empty stream ---

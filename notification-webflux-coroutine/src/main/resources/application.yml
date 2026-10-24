@@ -1,0 +1,29 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: notification-webflux-coroutine
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:16379}   # 16379 = compose redis exposed to the host (bootRun / hub-check)
+      lettuce:
+        pool:
+          # XREAD BLOCK runs on a dedicated connection (not the shared one) → one per reader while it blocks.
+          # same numbers as notification-mvc-vt, so the comparison only differs in the thread model
+          enabled: true
+          max-active: ${REDIS_POOL_MAX:320}
+          max-idle: ${REDIS_POOL_MAX:320}
+          min-idle: ${REDIS_POOL_MIN_IDLE:300}
+          time-between-eviction-runs: 1s
+
+logging:
+  level:
+    root: INFO
+
+app:
+  hub:
+    event-per-second: ${HUB_EVENT_PER_SECOND:8}
+    timeout-per-client: ${HUB_TIMEOUT_PER_CLIENT:4}   # output channel capacity = 8 × 4 = 32

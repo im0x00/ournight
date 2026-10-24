@@ -15,5 +15,5 @@ rootProject.name = "OurNight"
 
 include("OurNight_BE")
 
-// Benchmark modules (notification-reactive, notification-imperative) are a separate Gradle build
+// Benchmark modules (notification-mvc-vt, notification-webflux-reactor, notification-webflux-coroutine) are a separate Gradle build
 // in notification-benchmark/. Run Gradle for them from that directory.

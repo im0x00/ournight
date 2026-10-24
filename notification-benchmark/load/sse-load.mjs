@@ -7,7 +7,7 @@
 //
 // Run from notification-benchmark/ (production SLO, default port range):
 //
-//   ./gradlew :notification-reactive:bootJar && docker compose up -d --build
+//   ./gradlew :notification-webflux-reactor:bootJar && docker compose up -d --build webflux-reactor
 //
 //   Target load (S=300, E=8/s/store) — does plain break the SLO?
 //     node load/sse-load.mjs
@@ -18,9 +18,13 @@
 //   Failure scenario (app restart → reconnect storm):
 //     MODE=restart CLIENTS=300 node load/sse-load.mjs
 //
-//   MVC (notification-imperative, virtual threads) — same load, other container:
-//     ./gradlew :notification-imperative:bootJar && docker compose up -d --build noti-imperative
-//     OPTION=mvc-vt BASE_URL=http://127.0.0.1:18081 APP_CONTAINER=notification-benchmark-noti-imperative-1 node load/sse-load.mjs
+//   MVC (notification-mvc-vt, virtual threads) — same load, other container:
+//     ./gradlew :notification-mvc-vt:bootJar && docker compose up -d --build mvc-vt
+//     OPTION=mvc-vt BASE_URL=http://127.0.0.1:18081 APP_CONTAINER=notification-benchmark-mvc-vt-1 node load/sse-load.mjs
+//
+//   WebFlux + coroutine (notification-webflux-coroutine, F):
+//     ./gradlew :notification-webflux-coroutine:bootJar && docker compose up -d --build webflux-coroutine
+//     OPTION=coroutine-hub BASE_URL=http://127.0.0.1:18084 APP_CONTAINER=notification-benchmark-webflux-coroutine-1 node load/sse-load.mjs
 //
 // Each step prints a per-second timeline (conn/s, TIME_WAIT, failures, p99), so the
 // order "ports run out → EADDRNOTAVAIL → SLO broken" is visible, not just the end state.
@@ -46,9 +50,9 @@ const list = (k, d) => env(k, d).split(",").map((x) => Number(x.trim())).filter(
 const BASE_URL = env("BASE_URL", "http://127.0.0.1:18083");
 const REDIS_HOST = env("REDIS_HOST", "127.0.0.1");
 const REDIS_PORT = num("REDIS_PORT", 16379);
-const APP_CONTAINER = env("APP_CONTAINER", "notification-benchmark-noti-reactive-1");
+const APP_CONTAINER = env("APP_CONTAINER", "notification-benchmark-webflux-reactor-1");
 // which module's code the run measures (recorded with the git state in the result json)
-const APP_MODULE = env("APP_MODULE", APP_CONTAINER.includes("imperative") ? "notification-imperative" : "notification-reactive");
+const APP_MODULE = env("APP_MODULE", "notification-" + APP_CONTAINER.replace(/^notification-benchmark-/, "").replace(/-\d+$/, ""));
 const MODE = env("MODE", "ramp"); // ramp | restart
 const STEPS = list("STEPS", "300");
 const STEP_SECONDS = num("STEP_SECONDS", 60);
@@ -180,7 +184,7 @@ function newStep(label, s) {
     latencies: [], reorder: 0, dup: 0, gaps: 0, disconnects: 0, subscribeFails: 0, reconnects: 0, reloads: 0,
     churns: 0,
     anomalies: [], measureFrom: null,
-    samples: [], startedAt: Date.now(),
+    samples: [], res: [], startedAt: Date.now(),
   };
 }
 
@@ -487,6 +491,37 @@ async function sample() {
   }
 }
 const sampler = setInterval(sample, 1000);
+
+// ---------- resource sampler (CPU · memory · OS threads of the app container) ----------
+// docker stats --no-stream takes ~1-2s per call, so this runs as its own loop, not inside sample().
+// threads = OS threads of the JVM (PID 1 in the container). Virtual threads are not OS threads and do not show here.
+let resLoop = true;
+const num1 = (x) => { const n = parseFloat(String(x)); return Number.isFinite(n) ? n : null; };
+function toMiB(x) {
+  const m = String(x).trim().match(/^([\d.]+)\s*([KMG]i?B|B)$/i);
+  if (!m) return null;
+  const v = parseFloat(m[1]), u = m[2].toUpperCase();
+  return u.startsWith("G") ? v * 1024 : u.startsWith("M") ? v : u.startsWith("K") ? v / 1024 : v / 1048576;
+}
+async function resourceSample() {
+  const [st, th] = await Promise.all([
+    execFileAsync("docker", ["stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}", APP_CONTAINER], { timeout: 8000 })
+      .then((r) => r.stdout.trim()).catch(() => null),
+    execFileAsync("docker", ["exec", APP_CONTAINER, "sh", "-c", "grep '^Threads:' /proc/1/status"], { timeout: 5000 })
+      .then((r) => r.stdout.trim()).catch(() => null),
+  ]);
+  if (!st && !th) return null;
+  const [cpu, mem] = (st || "|").split("|");
+  return { t: Date.now(), cpu: num1(cpu), memMiB: toMiB((mem || "").split("/")[0]), threads: th ? num1(th.split(/\s+/)[1]) : null };
+}
+(async () => {
+  if (TIMEWAIT_COLLECTOR !== "docker") return;
+  while (resLoop) {
+    const r = await resourceSample();
+    if (r && step) step.res.push(r);
+    await sleep(1000);
+  }
+})();
 sampler.unref();
 
 // ---------- summary ----------
@@ -535,6 +570,19 @@ function summarize(st) {
   });
   sum.secondsOverSlo = sum.timeline.filter((x) => x.p99 != null && x.p99 >= SLO_P99_MS).map((x) => x.t);
   sum.anomalies = st.anomalies;
+  {
+    const res = (st.res || []).filter((r) => !st.measureFrom || r.t >= st.measureFrom);
+    const vals = (k) => res.map((r) => r[k]).filter((x) => x != null);
+    const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+    const max = (a) => (a.length ? Math.max(...a) : null);
+    const rc = rows.filter((r) => !st.measureFrom || r.t >= st.measureFrom).map((r) => r.redisClients).filter((x) => x != null);
+    sum.resources = {
+      samples: res.length,
+      cpuAvgPct: avg(vals("cpu")), cpuMaxPct: max(vals("cpu")),   // docker %: 100 = one core
+      memMaxMiB: max(vals("memMiB")), threadsMax: max(vals("threads")), threadsAvg: avg(vals("threads")),
+      redisClientsMax: max(rc),                                    // includes this load generator's own connection
+    };
+  }
   sum.fail = [
     sum.p99 != null && sum.p99 >= SLO_P99_MS && `p99 ${sum.p99}ms ≥ ${SLO_P99_MS}`,
     sum.reorder > 0 && `ordering violations ${sum.reorder}`,
@@ -560,6 +608,8 @@ function printStep(s) {
     `seconds p99≥SLO [${s.secondsOverSlo.join(",")}] | ` +
     (s.fail.length ? `FAIL: ${s.fail.join(", ")}` : "PASS"),
   );
+  if (s.resources) console.log(`  resources: CPU avg ${f(s.resources.cpuAvgPct, 0)}% max ${f(s.resources.cpuMaxPct, 0)}% | ` +
+    `mem max ${f(s.resources.memMaxMiB, 0)}MiB | OS threads max ${f(s.resources.threadsMax)} | redis clients max ${f(s.resources.redisClientsMax)} (n=${s.resources.samples})`);
   if (s.portsExhaustedAtS != null || s.firstFailureAtS != null)
     console.log(`  ports ≥95% TIME_WAIT at ${at(s.portsExhaustedAtS)}, first failure at ${at(s.firstFailureAtS)}, ` +
       `conn/s before failure ${f(s.connPerSecBeforeFailure)} (r=${f(s.rBeforeFailure, 2)}/s)`);
@@ -735,6 +785,7 @@ async function main() {
     for (let i = 0; !KEEP_STREAMS && i < stores.length; i += 100) {
       await redis.cmd("DEL", ...stores.slice(i, i + 100).map((s) => s.key)).catch(() => {});
     }
+    resLoop = false;
     redis.close();
     agent.destroy();
   }

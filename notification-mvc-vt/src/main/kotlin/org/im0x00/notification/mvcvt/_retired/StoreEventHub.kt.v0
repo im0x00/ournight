@@ -1,0 +1,81 @@
+package org.im0x00.notification.mvcvt
+
+import org.springframework.stereotype.Component
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+
+@Component
+class StoreEventHub(
+) {
+    private val channels = ConcurrentHashMap<UUID, StoreChannel>()
+
+    fun subscribe(
+        storeId: UUID,
+        lastEventId: String?,
+    ) {
+        channels.compute(storeId) { _, channel ->
+            (channel ?: StoreChannel(storeId)).also {  }
+        }
+    }
+
+
+}
+
+class StoreChannel(
+    storeId: UUID,
+) {
+    val subscribers = HashMap<String, SseEmitter>()
+    val running = ConcurrentHashMap<String, Future<*>>()
+    val executor = Executors.newVirtualThreadPerTaskExecutor()
+    val buffer = ArrayDeque<SseEvent>()
+
+    val timeoutMs = 30 * 60 * 1000L
+
+    fun createEmitter(lastEventId: String?): SseEmitter {
+        val id = // 적당한 가독성 있는 이름
+        val emitter = SseEmitter(timeoutMs)
+
+        emitter.onCompletion(cleanup)
+        emitter.onTimeout(cleanup)
+        emitter.onError { cleanup() }
+
+        subscribers[id] = emitter
+        replay(lastEventId)
+        broadcast(id)
+        return emitter
+    }
+
+    fun remove(id: String, emitter: SseEmitter) { subscribers.remove(id, emitter) }
+    fun isEmpty() = subscribers.isEmpty()
+
+    fun broadcast(id) {
+        val emitter = subscribers[id]
+        running[id] = executor.submit {
+            try {
+
+            } finally {
+                running.remove(id)
+            }
+        }
+    }
+
+    private fun sendToEmitter(id: String, sseEvent: SseEvent) {
+        val subscriber = subscribers[id]
+        executor.submit {
+            subscriber.send(sseEvent)
+        }
+    }
+
+    private fun replay(lastEventId: String?) {
+        val lst = lastEventId ?: return
+        val first = buffer.firstOrNull() ?: return
+        if (first > lst) {
+            sendToEmitter(RELOAD_REQUIRED)
+        }
+    }
+
+
+}

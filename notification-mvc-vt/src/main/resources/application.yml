@@ -1,0 +1,22 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: notification-mvc-vt
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:16379}
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 320
+          max-idle: 320
+          min-idle: 300
+          time-between-eviction-runs: 1s
+
+logging:
+  level:
+    root: INFO

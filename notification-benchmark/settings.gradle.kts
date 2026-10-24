@@ -14,8 +14,14 @@ dependencyResolutionManagement {
 rootProject.name = "notification-benchmark"
 
 // Module directories stay where they are (repo root) so Dockerfile and compose paths are unchanged.
-include("notification-reactive")
-project(":notification-reactive").projectDir = file("../notification-reactive")
+// A · C: Spring MVC + virtual threads
+include("notification-mvc-vt")
+project(":notification-mvc-vt").projectDir = file("../notification-mvc-vt")
 
-include("notification-imperative")
-project(":notification-imperative").projectDir = file("../notification-imperative")
+// old WebFlux + Reactor (reference row only)
+include("notification-webflux-reactor")
+project(":notification-webflux-reactor").projectDir = file("../notification-webflux-reactor")
+
+// F: WebFlux + coroutine, owner hub
+include("notification-webflux-coroutine")
+project(":notification-webflux-coroutine").projectDir = file("../notification-webflux-coroutine")

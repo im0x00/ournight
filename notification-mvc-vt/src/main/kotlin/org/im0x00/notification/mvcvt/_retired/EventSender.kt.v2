@@ -1,0 +1,95 @@
+package org.im0x00.notification.mvcvt
+
+import org.springframework.data.redis.connection.Limit
+import org.springframework.data.redis.connection.stream.MapRecord
+import org.springframework.data.redis.connection.stream.ReadOffset
+import org.springframework.data.redis.connection.stream.StreamOffset
+import org.springframework.data.redis.connection.stream.StreamReadOptions
+import org.springframework.data.redis.core.StringRedisTemplate
+import org.springframework.stereotype.Service
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
+import java.time.Duration
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import org.springframework.data.domain.Range
+
+@Service
+class EventSender(
+    val reader: PlainReader
+) {
+
+    val timeoutMs = 5 * 60 * 1000L
+
+    fun subscribe(
+        storeId: UUID,
+        lastEventId: String?,
+    ): SseEmitter {
+        val vtPerSubscription = Thread.ofVirtual().name("vt-per-subscription-${storeId}")
+        val sending = AtomicBoolean(true)
+
+        val emitter = SseEmitter(timeoutMs).apply {
+            onCompletion { sending.set(false) }
+            onError { sending.set(false) }
+            onTimeout { sending.set(false) }
+        }
+
+        var last = lastEventId ?: reader.getLast(storeId)?.id?.value ?: "0"
+
+        vtPerSubscription.start {
+            try {
+                while (sending.get()) {
+                    val records = reader.poll(storeId, last)
+                    records.forEach { record ->
+                        last = record.id.value
+                        sendToEmitter(emitter, record)
+                    }
+                }
+            } catch (e: Exception) {
+
+            } finally {
+                println("loop end")
+            }
+
+        }
+
+        return emitter
+    }
+
+    private fun sendToEmitter(emitter: SseEmitter, record: MapRecord<String, String, String>) {
+        emitter.send(
+            SseEmitter.event()
+                .id(record.id.value)
+                .data(record.value)
+                .build()
+        )
+    }
+}
+
+@Service
+class PlainReader(
+    private val stringRedisTemplate: StringRedisTemplate
+) {
+
+    val longPollingTimeout = Duration.ofSeconds(2)
+
+    fun poll(
+        storeId: UUID,
+        last: String
+    ): List<MapRecord<String, String, String>> {
+        val streamKey = PosStreamKey.store(storeId)
+        val readOptions = StreamReadOptions.empty().block(longPollingTimeout)
+        val offset = StreamOffset.create(streamKey, ReadOffset.from(last))
+        return stringRedisTemplate.opsForStream<String, String>().read(readOptions, offset)
+    }
+
+    fun getLast(storeId: UUID): MapRecord<String, String, String>? {
+        val streamKey = PosStreamKey.store(storeId)
+        val records = stringRedisTemplate.opsForStream<String, String>()
+            .reverseRange(
+                streamKey,
+                Range.unbounded(),
+                Limit.limit().count(1)
+            )
+        return records?.firstOrNull()
+    }
+}
