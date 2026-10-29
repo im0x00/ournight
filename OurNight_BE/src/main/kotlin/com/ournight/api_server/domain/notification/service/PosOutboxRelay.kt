@@ -23,26 +23,19 @@ class PosOutboxRelay(
     private val streamMaxLen = 10_000L
     private val batchSize = 100
 
-    // fixedDelay is the wait only when there is nothing more to send.
-    // A full batch with no failure means more rows may be waiting, so the next batch runs right away:
-    // under backlog the throughput is batchSize / t, not batchSize / (500ms + t).
-    // Each batch is its own transaction (joins the caller's transaction if there is one).
+    // 꽉 찬 batch가 실패 없이 끝나면 쉬지 않고 다음 batch. batch마다 transaction 하나.
     @Scheduled(fixedDelay = 500)
     fun publishPendingEvents() {
         while (transactionTemplate.execute { publishBatch() } == true) {
-            // keep draining
         }
     }
 
-    // true = the batch was full and every event was published -> run again without waiting.
-    // A failure returns false so a broken Redis is retried after fixedDelay, not in a tight loop.
+    // true: 꽉 찼고 전부 publish됨 → 바로 다시. 실패가 있으면 fixedDelay 뒤에 다시.
     private fun publishBatch(): Boolean {
         val events = outboxRepository.lockPublishable(batchSize)
         if (events.isEmpty()) return false
 
-        // A store whose event failed in this batch is skipped for the rest of the batch.
-        // Publishing a later event of the same store would put it ahead of the failed one in the stream
-        // and break per-store ordering. The failed event and everything after it are retried on the next run.
+        // 실패한 store는 이 batch에서 멈춤. 뒤 event가 앞지르면 store 안 순서가 깨짐.
         val blockedStores = HashSet<UUID>()
 
         events.forEach { event ->

@@ -47,8 +47,7 @@ class PosEventOutbox(
         lastError = null
     }
 
-    // No per-event backoff: pushing nextAttemptAt into the future would let later events of the same store
-    // be published first on the next run and break per-store ordering. The relay's polling interval is the retry delay.
+    // event별 backoff 없음: 이 event만 미루면 같은 store의 뒤 event가 앞지름.
     fun markFailed(error: Throwable) {
         attempts += 1
         lastError = (error.message ?: error::class.java.simpleName).take(1000)
