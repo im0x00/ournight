@@ -1,0 +1,135 @@
+name: Deploy Alpha Backend
+
+on:
+  push:
+    branches:
+      - alpha
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-alpha-backend
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPO: ournight-api-server
+  ECS_CLUSTER: ournight-api-cluster
+  ECS_SERVICE: ournight-api-service
+  ECS_CONTAINER_NAME: ournight-api
+
+jobs:
+  deploy:
+    name: Build, Push, and Deploy
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set image metadata
+        run: |
+          AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          if [[ -z "$AWS_ACCOUNT_ID" ]]; then
+            echo "AWS 계정 ID를 가져올 수 없습니다. secrets.AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY를 확인하세요." >&2
+            exit 1
+          fi
+          echo "AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "ECR_REGISTRY=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" >> "$GITHUB_ENV"
+          echo "BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+          docker buildx create --use
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false --sbom=false \
+            --build-arg BUILD_VERSION="$IMAGE_TAG" \
+            --build-arg BUILD_COMMIT="$GITHUB_SHA" \
+            --build-arg BUILD_TIME="$BUILD_TIME" \
+            --tag "$IMAGE" \
+            --tag "${ECR_REGISTRY}/${ECR_REPO}:alpha" \
+            --push \
+            .
+
+      - name: Register ECS task definition
+        run: |
+          IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+          CURRENT_TASK_DEFINITION_ARN="$(
+            aws ecs describe-services \
+              --region "$AWS_REGION" \
+              --cluster "$ECS_CLUSTER" \
+              --services "$ECS_SERVICE" \
+              --query 'services[0].taskDefinition' \
+              --output text
+          )"
+
+          aws ecs describe-task-definition \
+            --region "$AWS_REGION" \
+            --task-definition "$CURRENT_TASK_DEFINITION_ARN" \
+            --query 'taskDefinition' \
+            > task-definition.json
+
+          jq \
+            --arg image "$IMAGE" \
+            --arg container "$ECS_CONTAINER_NAME" \
+            'del(
+              .taskDefinitionArn,
+              .revision,
+              .status,
+              .requiresAttributes,
+              .compatibilities,
+              .registeredAt,
+              .registeredBy,
+              .deregisteredAt
+            )
+            | .containerDefinitions = (
+              .containerDefinitions
+              | map(if .name == $container then .image = $image else . end)
+            )' \
+            task-definition.json > new-task-definition.json
+
+          NEW_TASK_DEFINITION_ARN="$(
+            aws ecs register-task-definition \
+              --region "$AWS_REGION" \
+              --cli-input-json file://new-task-definition.json \
+              --query 'taskDefinition.taskDefinitionArn' \
+              --output text
+          )"
+
+          echo "NEW_TASK_DEFINITION_ARN=$NEW_TASK_DEFINITION_ARN" >> "$GITHUB_ENV"
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --task-definition "$NEW_TASK_DEFINITION_ARN"
+
+      - name: Wait for ECS service
+        run: |
+          aws ecs wait services-stable \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
+
+      - name: Public health check
+        run: |
+          curl -fsS "https://api.alpha.ournight.co.kr/api/health"

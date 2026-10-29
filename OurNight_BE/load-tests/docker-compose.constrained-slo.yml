@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ournight-slo-postgres
+    cpus: "${SLO_POSTGRES_CPUS:-1.0}"
+    mem_limit: "${SLO_POSTGRES_MEMORY:-1g}"
+    environment:
+      POSTGRES_DB: ournight_slo
+      POSTGRES_USER: ournight
+      POSTGRES_PASSWORD: ournight
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ournight -d ournight_slo"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - constrained_postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: ournight-slo-redis
+    cpus: "${SLO_REDIS_CPUS:-0.5}"
+    mem_limit: "${SLO_REDIS_MEMORY:-256m}"
+    command: ["redis-server", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  app:
+    build:
+      context: ..
+    container_name: ournight-slo-app
+    cpus: "${SLO_APP_CPUS:-2.0}"
+    mem_limit: "${SLO_APP_MEMORY:-1g}"
+    ports:
+      - "${SLO_APP_PORT:-18080}:8080"
+    volumes:
+      - ../build/classes/kotlin/test:/loadtest-test-classes:ro
+    entrypoint:
+      - java
+      - -Duser.timezone=Asia/Seoul
+      - -cp
+      - /loadtest-test-classes:/app/BOOT-INF/classes:/app/BOOT-INF/lib/*
+      - com.ournight.api_server.ApiServerApplicationKt
+    environment:
+      SPRING_PROFILES_ACTIVE: loadtest
+      DB_URL: jdbc:postgresql://postgres:5432/ournight_slo
+      DB_USERNAME: ournight
+      DB_PASSWORD: ournight
+      DB_POOL_MAX: "20"
+      DB_POOL_MIN: "5"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      JWT_SECRET: constrained-load-test-secret-at-least-thirty-two-bytes
+      KAKAO_CLIENT_ID: constrained-load-test-client
+      KAKAO_CLIENT_SECRET: constrained-load-test-secret
+      JAVA_TOOL_OPTIONS: -Xms512m -Xmx716m
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+
+volumes:
+  constrained_postgres:

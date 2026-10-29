@@ -1,0 +1,53 @@
+spring:
+  application:
+    name: api-server
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ournight_test
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        format_sql: true
+        show_sql: false
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+
+  flyway:
+    enabled: false
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 1
+
+logging:
+  level:
+    root: WARN
+    org.hibernate.SQL: warn
+    org.hibernate.orm.jdbc.bind: warn
+
+jwt:
+  secret: ${JWT_SECRET}
+  access-token-validity: 3600000
+  refresh-token-validity: 604800000
+
+kakao:
+  client-id: test
+  redirect-uri: "http://localhost:3000/auth/callback"
+  client-secret: test
+
+app:
+  client:
+    base-url: http://localhost:3000
+
+# 통합 테스트 시 실 S3 를 쓰면 로컬과 동일 버킷 권장 (Mock 이 없을 때)
+aws:
+  s3:
+    bucket: ${AWS_S3_BUCKET:ournight-s3-local-runtime}
+    domain: ${AWS_S3_DOMAIN:ournight-s3-local-runtime.s3.ap-northeast-2.amazonaws.com}

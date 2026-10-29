@@ -1,0 +1,67 @@
+spring:
+  devtools:
+    restart:
+      enabled: false
+  application:
+    name: api-server
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/postgres}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      leak-detection-threshold: 5000
+
+  jpa:
+    open-in-view: false # 필수! 없으면 SSE 연결시 connectionpool고갈됨
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+        show_sql: false
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+logging:
+  level:
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    com.zaxxer.hikari: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId}] %logger - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      show-details: always
+app:
+  client:
+    base-url: ${APP_CLIENT_BASE_URL:https://ournight.co.kr}
+
+# 로컬 개발 — S3 직접 URL(CloudFront 없음). domain 은 버킷 리전 도메인과 맞출 것.
+# AWS_S3_* 환경 변수가 있으면 기본값 대신 사용
+aws:
+  s3:
+    bucket: ${AWS_S3_BUCKET:ournight-s3-local-runtime}
+    domain: ${AWS_S3_DOMAIN:ournight-s3-local-runtime.s3.ap-northeast-2.amazonaws.com}
+    local-storage-enabled: true
+    local-storage-dir: ${LOCAL_UPLOAD_DIR:build/local-uploads}
+    local-base-url: ${LOCAL_UPLOAD_BASE_URL:http://localhost:8080/local-uploads}
