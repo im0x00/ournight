@@ -8,7 +8,7 @@ import org.springframework.data.redis.connection.stream.StreamRecords
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
-import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -16,17 +16,29 @@ import java.util.concurrent.ConcurrentHashMap
 class PosOutboxRelay(
     private val redisTemplate: StringRedisTemplate,
     private val outboxRepository: PosEventOutboxRepository,
+    private val transactionTemplate: TransactionTemplate,
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val touchedKeys = ConcurrentHashMap<String, Boolean>()
     private val streamMaxLen = 10_000L
     private val batchSize = 100
 
+    // fixedDelay is the wait only when there is nothing more to send.
+    // A full batch with no failure means more rows may be waiting, so the next batch runs right away:
+    // under backlog the throughput is batchSize / t, not batchSize / (500ms + t).
+    // Each batch is its own transaction (joins the caller's transaction if there is one).
     @Scheduled(fixedDelay = 500)
-    @Transactional
     fun publishPendingEvents() {
+        while (transactionTemplate.execute { publishBatch() } == true) {
+            // keep draining
+        }
+    }
+
+    // true = the batch was full and every event was published -> run again without waiting.
+    // A failure returns false so a broken Redis is retried after fixedDelay, not in a tight loop.
+    private fun publishBatch(): Boolean {
         val events = outboxRepository.lockPublishable(batchSize)
-        if (events.isEmpty()) return
+        if (events.isEmpty()) return false
 
         // A store whose event failed in this batch is skipped for the rest of the batch.
         // Publishing a later event of the same store would put it ahead of the failed one in the stream
@@ -50,6 +62,7 @@ class PosOutboxRelay(
                 )
             }
         }
+        return events.size == batchSize && blockedStores.isEmpty()
     }
 
     private fun publishToRedis(event: PosEventOutbox): String {
