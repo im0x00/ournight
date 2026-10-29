@@ -30,8 +30,7 @@ data class SseEvent(
 
 
 object PosStreamKey {
-    fun store(storeId: UUID): String =
-        "notification:store:$storeId:pos"
+    fun store(storeId: UUID): String = "notification:store:$storeId:pos"
 }
 
 data class StreamId(val ms: Long, val seq: Long) : Comparable<StreamId> {

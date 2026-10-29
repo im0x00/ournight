@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: notification-mvc-vt
+  threads:
+    virtual:
+      enabled: true
 
   data:
     redis:
