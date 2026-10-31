@@ -1,5 +1,5 @@
 # OurNight
-> 어떤 프로덕트인지 직관적 이해를 위해서는 ournight; product를 참고하자.
+> 어떤 프로덕트인지 직관적 이해를 위해서는 [Product](https://im0x00.com/projects/ournight/product)를 참고하자. UI를 체험할 수 있다.
 
 대학 축제 주점을 위한 QR 주문 · POS 플랫폼. 한양대 2026 라치오스 주점 2곳에서 처음 실제로 쓰였다.
 
