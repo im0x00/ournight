@@ -11,7 +11,7 @@
 
 commit log가 짧은 이유. `OurNight_BE/`와 `OurNight_FE/`는 2026년 봄 학기부터 팀 repo에서 개발했고, 축제 운영이 끝난 뒤 2026-07-31에 이 repo로 **통합해서 옮겼다** (`Initial integrated repository`). 그래서 그 전의 commit history는 여기 없다. `OurNight_BE/.github/workflows`(ECR → ECS 배포)와 `terraform/`은 그때 실제로 쓰던 것 그대로다.
 
-`notification-*` module과 `notification-benchmark/`는 2026-10부터 이 repo에서 새로 개발했고, 그 history는 그대로 남아 있다. hub를 두 runtime으로 짜고 비교한 기록은 [Hub comparison](https://im0x00.com/projects/ournight/notification-hub-mvc-vs-webflux)에 있다.
+hub를 두 runtime으로 짜고 비교한 기록은 [Hub comparison](https://im0x00.com/projects/ournight/notification-hub-mvc-vs-webflux)에 있다.
 
 
 ## 문서
